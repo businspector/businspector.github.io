@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bus Inspector Map</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f4f4f9;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #map {
+            height: 500px;
+            width: 90%;
+            margin: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        }
+        input[type="number"], button {
+            padding: 10px;
+            margin: 5px 0;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
+            width: 90%; /* Adjust input and button width */
+        }
+        button {
+            background-color: #5cb85c;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #4cae4c;
+        }
+        .control-panel {
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        /* Media Queries */
+        @media (max-width: 600px) {
+            body {
+                padding: 5px;
+            }
+            #map, input[type="number"], button, .control-panel {
+                width: 100%; /* Makes elements full width on small screens */
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Bus Inspector Map</h1>
+    <div class="control-panel">
+        <input type="number" id="inspector_count" placeholder="Number of inspectors seen">
+        <button onclick="reportInspection()">Report Sighting</button>
+    </div>
+    <div id="map"></div>
+    
+    <script>
+        var map = L.map('map').setView([31.755010, 35.208280], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        // Adding geocoding control as previously discussed
+        var geocoder = L.Control.geocoder({
+            defaultMarkGeocode: false
+        }).on('markgeocode', function(e) {
+            var bbox = e.geocode.bbox;
+            var poly = L.polygon([
+                bbox.getSouthEast(),
+                bbox.getNorthEast(),
+                bbox.getNorthWest(),
+                bbox.getSouthWest()
+            ]).addTo(map);
+            map.fitBounds(poly.getBounds());
+        }).addTo(map);
+
+        function reportInspection() {
+            var inspectorCount = document.getElementById('inspector_count').value;
+            map.once('click', function(e) {  // Changed to 'once' to ensure the event handler does not stack
+                var latlng = map.mouseEventToLatLng(e.originalEvent);
+                fetch('/report', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        latitude: latlng.lat,
+                        longitude: latlng.lng,
+                        count: inspectorCount
+                    })
+                }).then(response => response.json())
+                  .then(data => {
+                    console.log('Report added:', data);
+                    updateMap();  // Update map after a new report
+                });
+            });
+        }
+
+        function updateMap() {
+            fetch('/reports')
+                .then(response => response.json())
+                .then(data => {
+                    map.eachLayer(function(layer) {
+                        if (!!layer.toGeoJSON && layer !== map && layer._url !== 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png') {
+                            map.removeLayer(layer);  // Correct condition to only remove markers
+                        }
+                    });
+                    data.forEach(function(report) {
+                        L.marker([report.latitude, report.longitude])
+                            .addTo(map)
+                            .bindPopup("Inspectors seen: " + report.count);
+                    });
+                });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            updateMap();  // Load existing reports on page load
+            setInterval(updateMap, 60000); // Update map every minute to show new reports
+        });
+    </script>
+
+
+</body>
+</html>
